@@ -152,6 +152,9 @@ export const useAuthStore = create<AuthState>()(persist(
         
         localStorage.removeItem('auth-token')
         localStorage.removeItem('auth-user')
+        // Limpiar cache del menú al hacer logout
+        localStorage.removeItem('cached-menu')
+        localStorage.removeItem('cached-menu-timestamp')
         
         // Call logout endpoint
         api.post('/api/auth/logout').catch(() => {})

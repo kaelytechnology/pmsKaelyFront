@@ -8,6 +8,8 @@ import { useTenantTheme } from '@/hooks/use-tenant-theme'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { AuthGuard } from '@/components/auth-guard'
 
+
+
 interface DashboardLayoutProps {
   children: React.ReactNode
   params: {

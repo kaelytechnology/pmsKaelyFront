@@ -309,23 +309,122 @@ export const getIconComponent = (iconName?: string): LucideIcon => {
 }
 
 /**
- * Hook para obtener el menú dinámico desde el API
+ * Funciones para persistencia del menú en localStorage y sessionStorage
+ */
+const MENU_STORAGE_KEY = 'cached-menu'
+const SESSION_MENU_KEY = 'session-menu'
+const MENU_CACHE_DURATION = 30 * 60 * 1000 // 30 minutos
+
+// Función para guardar menú en localStorage y sessionStorage
+const saveMenuToStorage = (menu: MenuItem[]) => {
+  if (typeof window === 'undefined') return
+  
+  try {
+    const menuData = {
+      menu,
+      timestamp: Date.now(),
+      expiresAt: Date.now() + MENU_CACHE_DURATION
+    }
+    const menuString = JSON.stringify(menuData)
+    localStorage.setItem(MENU_STORAGE_KEY, menuString)
+    sessionStorage.setItem(SESSION_MENU_KEY, menuString)
+    console.log('💾 Menu saved to localStorage and sessionStorage')
+  } catch (error) {
+    console.warn('Failed to save menu to storage:', error)
+  }
+}
+
+// Función para obtener menú desde localStorage o sessionStorage
+const getMenuFromStorage = (): MenuItem[] | null => {
+  if (typeof window === 'undefined') return null
+  
+  try {
+    // Intentar primero sessionStorage (más rápido)
+    let stored = sessionStorage.getItem(SESSION_MENU_KEY)
+    if (!stored) {
+      // Fallback a localStorage
+      stored = localStorage.getItem(MENU_STORAGE_KEY)
+    }
+    
+    if (!stored) return null
+    
+    const menuData = JSON.parse(stored)
+    
+    // Verificar si el cache ha expirado
+    if (Date.now() > menuData.expiresAt) {
+      localStorage.removeItem(MENU_STORAGE_KEY)
+      sessionStorage.removeItem(SESSION_MENU_KEY)
+      console.log('🗑️ Expired menu cache removed')
+      return null
+    }
+    
+    console.log('📦 Menu loaded from storage cache')
+    return menuData.menu
+  } catch (error) {
+    console.warn('Failed to load menu from storage:', error)
+    localStorage.removeItem(MENU_STORAGE_KEY)
+    sessionStorage.removeItem(SESSION_MENU_KEY)
+    return null
+  }
+}
+
+/**
+ * Hook para obtener el menú dinámico desde el API con persistencia local
  */
 export const useMenu = () => {
-  const { token, isAuthenticated, updateUserFromMenu } = useAuthStore()
+  const { token, isAuthenticated, updateUserFromMenu, isInitialized } = useAuthStore()
+  
+  // Obtener datos iniciales desde localStorage para mostrar inmediatamente
+  const getInitialData = (): MenuItem[] | undefined => {
+    if (typeof window === 'undefined') {
+      console.log('🚫 Server side - no initial data')
+      return undefined
+    }
+    
+    const cachedMenu = getMenuFromStorage()
+    if (cachedMenu) {
+      console.log('📦 Loading initial menu from cache:', cachedMenu.length, 'items')
+      return cachedMenu
+    }
+    
+    // Si no hay cache y no está autenticado, usar menú por defecto
+    const authToken = localStorage.getItem('auth-token')
+    if (!authToken) {
+      console.log('🔄 Loading initial default menu (no auth token)')
+      return getDefaultMenu()
+    }
+    
+    console.log('⚠️ No initial data available')
+    return undefined
+  }
+  
+  const initialData = getInitialData()
+  console.log('🔧 useMenu hook initialized with initialData:', !!initialData, initialData?.length || 0)
   
   return useQuery<MenuItem[]>({
     queryKey: ['menu'],
+    initialData,
     queryFn: async () => {
-      if (!isAuthenticated || !token) {
-        throw new Error('No authentication token available')
+      console.log('🚀 queryFn called - fetching menu from API')
+      // Verificar token desde localStorage como fallback
+      const authToken = token || (typeof window !== 'undefined' ? localStorage.getItem('auth-token') : null)
+      
+      if (!authToken) {
+        // Si no está autenticado, intentar cargar desde cache o usar menú por defecto
+        const cachedMenu = getMenuFromStorage()
+        if (cachedMenu) {
+          console.log('📦 Using cached menu (not authenticated)')
+          return cachedMenu
+        }
+        console.log('🔄 Using default menu (not authenticated)')
+        return getDefaultMenu()
       }
       
       try {
         console.log('🔍 Fetching menu from API:', {
           endpoint: '/api/auth/menu',
           baseURL: api.defaults.baseURL,
-          hasToken: !!token
+          hasToken: !!authToken
         })
         
         const response = await api.get<MenuResponse>('/api/auth/menu')
@@ -354,6 +453,9 @@ export const useMenu = () => {
           
           const processedMenu = processMenuItems(response.data.data)
           
+          // Guardar en localStorage para futuras cargas
+          saveMenuToStorage(processedMenu)
+          
           return processedMenu
         } else {
           throw new Error('Invalid menu response format')
@@ -361,16 +463,26 @@ export const useMenu = () => {
       } catch (error: any) {
         console.error('❌ Menu fetch error:', error)
         
-        // Si hay error, devolver menú por defecto
+        // Intentar cargar desde cache antes de usar menú por defecto
+        const cachedMenu = getMenuFromStorage()
+        if (cachedMenu) {
+          console.log('📦 Using cached menu (API error)')
+          return cachedMenu
+        }
+        
+        // Si hay error y no hay cache, devolver menú por defecto
         console.log('🔄 Falling back to default menu')
         return getDefaultMenu()
       }
     },
-    enabled: isAuthenticated && !!token,
+    enabled: true, // Siempre habilitado para permitir cache
     staleTime: 5 * 60 * 1000, // 5 minutos
     cacheTime: 10 * 60 * 1000, // 10 minutos
     retry: 2,
     retryDelay: 1000,
+    // Configuración para mostrar datos cached mientras se actualiza
+    refetchOnMount: true,
+    refetchOnWindowFocus: false,
   })
 }
 
@@ -426,9 +538,14 @@ export const useMenuPermissions = () => {
       return true
     }
     
-    // Si no hay usuario, denegar acceso
-    if (!user || !user.permissions) {
-      return false
+    // Si no hay usuario, permitir acceso (será manejado por AuthGuard)
+    if (!user) {
+      return true
+    }
+    
+    // Si el usuario no tiene permisos definidos, permitir acceso
+    if (!user.permissions || user.permissions.length === 0) {
+      return true
     }
     
     // Verificar si el usuario tiene al menos uno de los permisos requeridos

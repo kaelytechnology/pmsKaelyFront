@@ -13,7 +13,7 @@ import {
   ChevronDown,
   ChevronRight,
 } from 'lucide-react'
-import { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   Sheet,
@@ -123,11 +123,72 @@ export function Sidebar({ tenant }: SidebarProps) {
   const { data: menuItems, isLoading: isMenuLoading, error: menuError } = useMenu()
   const { filterMenuByPermissions } = useMenuPermissions()
   const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({})
+  // Estado persistente del menú que siempre tiene un valor
+  const [persistentMenu, setPersistentMenu] = useState<MenuItem[]>(() => {
+    // En el servidor, usar menú por defecto
+    if (typeof window === 'undefined') {
+      return getDefaultMenu()
+    }
+    
+    try {
+      // Intentar cargar desde storage
+      let cachedMenu = sessionStorage.getItem('session-menu')
+      if (!cachedMenu) {
+        cachedMenu = localStorage.getItem('cached-menu')
+      }
+      
+      if (cachedMenu) {
+        const menuData = JSON.parse(cachedMenu)
+        const menu = menuData.menu || menuData
+        console.log('🚀 Menu cargado desde storage:', menu.length)
+        return menu
+      }
+    } catch (error) {
+      console.warn('Error cargando menú desde storage:', error)
+    }
+    
+    // Fallback al menú por defecto
+    console.log('🔄 Usando menú por defecto')
+    return getDefaultMenu()
+  })
   
-  // Obtener menú filtrado por permisos o usar menú por defecto
-  const navigation = menuItems 
-    ? filterMenuByPermissions(menuItems)
-    : getDefaultMenu()
+  // Actualizar menú persistente cuando React Query tenga datos
+  useEffect(() => {
+    if (menuItems && menuItems.length > 0) {
+      setPersistentMenu(menuItems)
+      console.log('✅ Menú actualizado desde API:', menuItems.length)
+    }
+  }, [menuItems])
+  
+  // Guardar en storage cuando el menú cambie
+  useEffect(() => {
+    if (persistentMenu.length > 0 && typeof window !== 'undefined') {
+      try {
+        const menuData = {
+          menu: persistentMenu,
+          timestamp: Date.now(),
+          expiresAt: Date.now() + (30 * 60 * 1000)
+        }
+        const menuString = JSON.stringify(menuData)
+        localStorage.setItem('cached-menu', menuString)
+        sessionStorage.setItem('session-menu', menuString)
+        console.log('💾 Menú guardado en storage')
+      } catch (error) {
+        console.warn('Error guardando menú:', error)
+      }
+    }
+  }, [persistentMenu])
+  
+  // Obtener menú filtrado por permisos con lógica más permisiva
+  const navigation = React.useMemo(() => {
+    // Si no hay usuario cargado aún, mostrar menú completo
+    if (!user) {
+      return persistentMenu
+    }
+    
+    // Si hay usuario, filtrar por permisos
+    return filterMenuByPermissions(persistentMenu)
+  }, [persistentMenu, user, filterMenuByPermissions])
 
   const toggleExpanded = (itemId: string) => {
     setExpandedItems(prev => ({
@@ -153,17 +214,7 @@ export function Sidebar({ tenant }: SidebarProps) {
 
       {/* Navigation */}
       <nav className="flex-1 space-y-1 px-4 py-4">
-        {isMenuLoading ? (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            <span className="ml-2 text-sm text-muted-foreground">Loading menu...</span>
-          </div>
-        ) : menuError ? (
-          <div className="px-3 py-2 text-sm text-muted-foreground">
-            <p>Using default menu</p>
-            <p className="text-xs text-red-500 mt-1">Menu API unavailable</p>
-          </div>
-        ) : null}
+        {/* Ya no necesitamos mostrar loader porque persistentMenu siempre tiene datos */}
         
         {navigation.map((item) => {
           const hasChildren = item.children && item.children.length > 0
