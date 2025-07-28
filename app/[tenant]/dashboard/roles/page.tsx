@@ -6,6 +6,15 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Badge } from '@/components/ui/badge'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,19 +23,63 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
 import { api } from '@/lib/axios'
 import { formatDateTime } from '@/lib/utils'
-import { Plus, Search, MoreHorizontal, Edit, Trash2, Shield, Users } from 'lucide-react'
+import { Plus, Search, MoreHorizontal, Edit, Trash2, Shield, Users, Eye, Settings } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { CreateRoleDialog } from './components/create-role-dialog'
+import { EditRoleDialog } from './components/edit-role-dialog'
+import { ManagePermissionsDialog } from './components/manage-permissions-dialog'
+
+interface RoleCategory {
+  id: number
+  name: string
+  description?: string
+}
 
 interface Role {
-  id: string
+  id: number
   name: string
-  description: string
-  permissions: string[]
-  userCount: number
-  createdAt: string
-  updatedAt: string
+  code?: string
+  description?: string
+  status: number
+  created_at: string
+  updated_at: string
+  permissions: Permission[]
+  permissions_count: number
+}
+
+interface RolesResponse {
+  data: Role[]
+  pagination: {
+    current_page: number
+    last_page: number
+    per_page: number
+    total: number
+    from: number
+    to: number
+  }
+}
+
+interface Permission {
+  id: number
+  name: string
+  slug: string
+  description?: string
+}
+
+interface User {
+  id: number
+  name: string
+  email: string
 }
 
 interface PageProps {
@@ -38,78 +91,71 @@ interface PageProps {
 export default function RolesPage({ params }: PageProps) {
   const { tenant } = params
   const [searchTerm, setSearchTerm] = useState('')
+  const [selectedRole, setSelectedRole] = useState<Role | null>(null)
+  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [isPermissionsDialogOpen, setIsPermissionsDialogOpen] = useState(false)
   const queryClient = useQueryClient()
 
-  const { data: roles, isLoading } = useQuery<Role[]>({
+  const { data: rolesResponse, isLoading } = useQuery<RolesResponse>({
     queryKey: ['roles', tenant],
     queryFn: async () => {
-      // Mock data for demo - replace with actual API call
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      return [
-        {
-          id: '1',
-          name: 'Admin',
-          description: 'Full system access with all permissions',
-          permissions: ['users.create', 'users.read', 'users.update', 'users.delete', 'roles.manage', 'permissions.manage'],
-          userCount: 2,
-          createdAt: new Date(Date.now() - 86400000 * 30).toISOString(),
-          updatedAt: new Date(Date.now() - 86400000).toISOString(),
-        },
-        {
-          id: '2',
-          name: 'Manager',
-          description: 'Management access with limited administrative permissions',
-          permissions: ['users.read', 'users.update', 'reports.read', 'bookings.manage'],
-          userCount: 5,
-          createdAt: new Date(Date.now() - 86400000 * 25).toISOString(),
-          updatedAt: new Date(Date.now() - 86400000 * 2).toISOString(),
-        },
-        {
-          id: '3',
-          name: 'Staff',
-          description: 'Basic staff access for daily operations',
-          permissions: ['bookings.read', 'bookings.update', 'guests.read'],
-          userCount: 12,
-          createdAt: new Date(Date.now() - 86400000 * 20).toISOString(),
-          updatedAt: new Date(Date.now() - 86400000 * 5).toISOString(),
-        },
-        {
-          id: '4',
-          name: 'Guest',
-          description: 'Limited access for guest users',
-          permissions: ['profile.read', 'profile.update'],
-          userCount: 0,
-          createdAt: new Date(Date.now() - 86400000 * 15).toISOString(),
-          updatedAt: new Date(Date.now() - 86400000 * 10).toISOString(),
-        },
-      ]
+      const response = await api.get(`/api/auth/roles`)
+      return response.data
+    },
+  })
+
+  const roles = rolesResponse?.data || []
+
+  const { data: permissions } = useQuery<Permission[]>({
+    queryKey: ['permissions', tenant],
+    queryFn: async () => {
+      const response = await api.get(`/api/auth/permissions`)
+      return response.data.data || response.data
+    },
+  })
+
+  const { data: roleCategories } = useQuery<RoleCategory[]>({
+    queryKey: ['role-categories', tenant],
+    queryFn: async () => {
+      const response = await api.get(`/api/auth/role-categories`)
+      return response.data.data
     },
   })
 
   const deleteRoleMutation = useMutation({
-    mutationFn: async (roleId: string) => {
-      // Mock API call
-      await new Promise(resolve => setTimeout(resolve, 500))
-      return { success: true }
+    mutationFn: async (roleId: number) => {
+      const response = await api.delete(`/api/auth/roles/${roleId}`)
+      return response.data
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['roles', tenant] })
       toast.success('Role deleted successfully')
     },
-    onError: () => {
-      toast.error('Failed to delete role')
+    onError: (error: any) => {
+      toast.error(error.response?.data?.message || 'Failed to delete role')
     },
   })
 
-  const filteredRoles = roles?.filter(role =>
+  const filteredRoles = roles.filter(role =>
     role.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    role.description.toLowerCase().includes(searchTerm.toLowerCase())
-  ) || []
+    (role.description && role.description.toLowerCase().includes(searchTerm.toLowerCase()))
+  )
 
-  const handleDeleteRole = (roleId: string, roleName: string) => {
+  const handleDeleteRole = (roleId: number, roleName: string) => {
     if (confirm(`Are you sure you want to delete the "${roleName}" role?`)) {
       deleteRoleMutation.mutate(roleId)
     }
+  }
+
+  const handleEditRole = (role: Role) => {
+    setSelectedRole(role)
+    setIsEditDialogOpen(true)
+  }
+
+  const handleManagePermissions = (role: Role) => {
+    setSelectedRole(role)
+    setIsPermissionsDialogOpen(true)
   }
 
   const getRoleColor = (roleName: string) => {
@@ -135,143 +181,208 @@ export default function RolesPage({ params }: PageProps) {
             Manage user roles and their permissions
           </p>
         </div>
-        <Button>
+        <Button onClick={() => setIsCreateDialogOpen(true)}>
           <Plus className="mr-2 h-4 w-4" />
           Create Role
         </Button>
       </div>
 
-      {/* Search */}
+      {/* Actions Bar */}
       <Card>
-        <CardHeader>
-          <CardTitle>Search Roles</CardTitle>
-          <CardDescription>
-            Find roles by name or description
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center space-x-2">
-            <Search className="h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search roles..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="max-w-sm"
-            />
+        <CardContent className="pt-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center space-x-2">
+              <Search className="h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search roles..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="max-w-sm"
+              />
+            </div>
+            <div className="flex items-center space-x-2">
+              <Button variant="outline">
+                Export
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Roles Grid */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {isLoading ? (
-          Array.from({ length: 6 }).map((_, i) => (
-            <Card key={i}>
-              <CardHeader>
-                <Skeleton className="h-6 w-24" />
-                <Skeleton className="h-4 w-full" />
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  <Skeleton className="h-4 w-20" />
-                  <Skeleton className="h-4 w-16" />
-                  <Skeleton className="h-8 w-full" />
+      {/* Roles Table */}
+      <Card>
+        <CardHeader>
+          <CardTitle>All Roles</CardTitle>
+          <CardDescription>
+            Manage user roles and their permissions
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="space-y-3">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="flex items-center space-x-4">
+                  <Skeleton className="h-4 w-[200px]" />
+                  <Skeleton className="h-4 w-[150px]" />
+                  <Skeleton className="h-4 w-[100px]" />
+                  <Skeleton className="h-4 w-[120px]" />
+                  <Skeleton className="h-4 w-[80px]" />
+                  <Skeleton className="h-4 w-[100px]" />
                 </div>
-              </CardContent>
-            </Card>
-          ))
-        ) : filteredRoles.length === 0 ? (
-          <div className="col-span-full text-center py-8">
-            <p className="text-muted-foreground">No roles found</p>
-          </div>
-        ) : (
-          filteredRoles.map((role) => (
-            <Card key={role.id} className="relative">
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <Shield className="h-5 w-5 text-primary" />
-                    <CardTitle className="text-lg">{role.name}</CardTitle>
-                  </div>
-                  <span className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ${getRoleColor(role.name)}`}>
-                    {role.name}
-                  </span>
-                </div>
-                <CardDescription>{role.description}</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Users:</span>
-                    <div className="flex items-center space-x-1">
-                      <Users className="h-4 w-4" />
-                      <span className="font-medium">{role.userCount}</span>
-                    </div>
-                  </div>
-                  
-                  <div>
-                    <p className="text-sm font-medium mb-2">Permissions ({role.permissions.length}):</p>
-                    <div className="flex flex-wrap gap-1">
-                      {role.permissions.slice(0, 3).map((permission) => (
-                        <span
-                          key={permission}
-                          className="inline-flex items-center rounded-md bg-muted px-2 py-1 text-xs font-medium"
-                        >
-                          {permission}
+              ))}
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Role</TableHead>
+                  <TableHead>Category</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Permissions</TableHead>
+                  <TableHead>Users</TableHead>
+                  <TableHead>Updated</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredRoles.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center py-8">
+                      <p className="text-muted-foreground">No roles found</p>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredRoles.map((role) => (
+                    <TableRow key={role.id}>
+                      <TableCell>
+                        <div className="flex items-center space-x-2">
+                          <Shield className="h-4 w-4 text-primary" />
+                          <div>
+                            <div className="font-medium">{role.name}</div>
+                            <div className="text-sm text-muted-foreground">
+                              {role.description || 'No description'}
+                            </div>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <span className="text-muted-foreground">-</span>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={role.status === 1 ? "default" : "secondary"}>
+                          {role.status === 1 ? "Active" : "Inactive"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-1">
+                          {role.permissions.slice(0, 2).map((permission) => (
+                            <Badge
+                              key={permission.id}
+                              variant="outline"
+                              className="text-xs"
+                            >
+                              {permission.name}
+                            </Badge>
+                          ))}
+                          {role.permissions.length > 2 && (
+                            <Badge variant="outline" className="text-xs">
+                              +{role.permissions.length - 2}
+                            </Badge>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center space-x-1">
+                          <Shield className="h-4 w-4" />
+                          <span>{role.permissions_count}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <span className="text-sm text-muted-foreground">
+                          {formatDateTime(role.updated_at)}
                         </span>
-                      ))}
-                      {role.permissions.length > 3 && (
-                        <span className="inline-flex items-center rounded-md bg-muted px-2 py-1 text-xs font-medium">
-                          +{role.permissions.length - 3} more
-                        </span>
-                      )}
-                    </div>
-                  </div>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onClick={() => handleEditRole(role)}>
+                              <Edit className="mr-2 h-4 w-4" />
+                              Edit Role
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleManagePermissions(role)}>
+                              <Shield className="mr-2 h-4 w-4" />
+                              Manage Permissions
+                            </DropdownMenuItem>
+                            <DropdownMenuItem>
+                              <Users className="mr-2 h-4 w-4" />
+                              View Users
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              className="text-destructive"
+                              onClick={() => handleDeleteRole(role.id, role.name)}
+                              disabled={deleteRoleMutation.isPending || (role.userCount || 0) > 0}
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Delete Role
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
 
-                  <div className="flex items-center justify-between pt-2">
-                    <span className="text-xs text-muted-foreground">
-                      Updated {formatDateTime(role.updatedAt)}
-                    </span>
-                    
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem>
-                          <Edit className="mr-2 h-4 w-4" />
-                          Edit Role
-                        </DropdownMenuItem>
-                        <DropdownMenuItem>
-                          <Shield className="mr-2 h-4 w-4" />
-                          Manage Permissions
-                        </DropdownMenuItem>
-                        <DropdownMenuItem>
-                          <Users className="mr-2 h-4 w-4" />
-                          View Users
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          className="text-destructive"
-                          onClick={() => handleDeleteRole(role.id, role.name)}
-                          disabled={deleteRoleMutation.isPending || role.userCount > 0}
-                        >
-                          <Trash2 className="mr-2 h-4 w-4" />
-                          Delete Role
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))
-        )}
-      </div>
+      {/* Dialogs */}
+      <CreateRoleDialog
+        open={isCreateDialogOpen}
+        onOpenChange={setIsCreateDialogOpen}
+        roleCategories={roleCategories || []}
+        onSuccess={() => {
+          queryClient.invalidateQueries({ queryKey: ['roles', tenant] })
+          setIsCreateDialogOpen(false)
+        }}
+      />
+
+      {selectedRole && (
+        <EditRoleDialog
+          open={isEditDialogOpen}
+          onOpenChange={setIsEditDialogOpen}
+          role={selectedRole}
+          roleCategories={roleCategories || []}
+          onSuccess={() => {
+            queryClient.invalidateQueries({ queryKey: ['roles', tenant] })
+            setIsEditDialogOpen(false)
+            setSelectedRole(null)
+          }}
+        />
+      )}
+
+      {selectedRole && (
+        <ManagePermissionsDialog
+          open={isPermissionsDialogOpen}
+          onOpenChange={setIsPermissionsDialogOpen}
+          role={selectedRole}
+          permissions={permissions || []}
+          onSuccess={() => {
+            queryClient.invalidateQueries({ queryKey: ['roles', tenant] })
+            setIsPermissionsDialogOpen(false)
+            setSelectedRole(null)
+          }}
+        />
+      )}
     </div>
   )
 }

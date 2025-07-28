@@ -47,7 +47,7 @@ interface MenuItemComponentProps {
 function MenuItemComponent({ item, tenant, pathname, level = 0 }: MenuItemComponentProps) {
   const [isExpanded, setIsExpanded] = useState(false)
   const hasChildren = item.children && item.children.length > 0
-  const href = `/${tenant}${item.href}`
+  const href = item.href
   const isActive = pathname === href
   const IconComponent = getIconComponent(item.icon)
   const paddingLeft = level * 12 + 12 // Indentación por nivel
@@ -218,7 +218,8 @@ export function Sidebar({ tenant }: SidebarProps) {
         
         {navigation.map((item) => {
           const hasChildren = item.children && item.children.length > 0
-          const href = `/${tenant}${item.href}`
+          // Usar href directamente sin agregar tenant
+          const href = item.href || '#'
           const isActive = pathname === href
           const IconComponent = getIconComponent(item.icon)
           const itemId = item.id || item.name
@@ -262,7 +263,15 @@ export function Sidebar({ tenant }: SidebarProps) {
               {hasChildren && isExpanded && (
                 <div className="ml-6 mt-1 space-y-1">
                   {item.children!.map((child) => {
-                    const childHref = `/${tenant}${child.href}`
+                    // Construir childHref correctamente
+                    let childHref = child.href || '#'
+                    if (childHref.startsWith('/dashboard')) {
+                      childHref = `/${tenant}${childHref}`
+                    } else if (childHref.startsWith('/')) {
+                      childHref = `/${tenant}/dashboard${childHref}`
+                    } else {
+                      childHref = `/${tenant}/dashboard/${childHref}`
+                    }
                     const childIsActive = pathname === childHref
                     const ChildIconComponent = getIconComponent(child.icon)
                     

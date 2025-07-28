@@ -18,7 +18,9 @@ export function AuthGuard({ children, tenant, fallback }: AuthGuardProps) {
   useEffect(() => {
     // Only redirect after loading is complete
     if (!isLoading && !isAuthenticated) {
-      router.replace(`/${tenant}/login`)
+      // Use window.location to ensure clean redirect to login page
+      // Domain already identifies tenant, so redirect to /login directly
+      window.location.href = `/login`
     }
   }, [isLoading, isAuthenticated, tenant, router])
 

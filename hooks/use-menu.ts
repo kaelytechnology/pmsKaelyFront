@@ -440,13 +440,32 @@ export const useMenu = () => {
           // Función recursiva para procesar menús con children
           const processMenuItems = (items: MenuItem[]): MenuItem[] => {
             return items
-              .map(item => ({
-                ...item,
-                href: item.route || item.href || '#', // Usar route como href
-                icon: convertFontAwesomeToLucide(item.icon) || 'home', // Convertir iconos
-                isVisible: item.isVisible !== false, // Por defecto visible
-                children: item.children ? processMenuItems(item.children) : undefined
-              }))
+              .map(item => {
+                // Normalizar la ruta para asegurar que tenga el prefijo correcto
+                let normalizedHref = item.route || item.href || '#'
+                
+                // Si la ruta no empieza con '/' o es solo '#', mantenerla como está
+                if (normalizedHref === '#' || normalizedHref.startsWith('http')) {
+                  // Mantener rutas externas o placeholder
+                } else if (normalizedHref.startsWith('/')) {
+                  // Si empieza con '/', verificar si necesita prefijo /dashboard
+                  if (!normalizedHref.startsWith('/dashboard') && normalizedHref !== '/') {
+                    // Agregar prefijo /dashboard para rutas como /users, /roles, etc.
+                    normalizedHref = `/dashboard${normalizedHref}`
+                  }
+                } else {
+                  // Si no empieza con '/', agregar /dashboard/
+                  normalizedHref = `/dashboard/${normalizedHref}`
+                }
+                
+                return {
+                  ...item,
+                  href: normalizedHref,
+                  icon: convertFontAwesomeToLucide(item.icon) || 'home', // Convertir iconos
+                  isVisible: item.isVisible !== false, // Por defecto visible
+                  children: item.children ? processMenuItems(item.children) : undefined
+                }
+              })
               .filter(item => item.isVisible) // Filtrar elementos no visibles
               .sort((a, b) => (a.order || 0) - (b.order || 0)) // Ordenar por order
           }
@@ -476,13 +495,13 @@ export const useMenu = () => {
       }
     },
     enabled: true, // Siempre habilitado para permitir cache
-    staleTime: 5 * 60 * 1000, // 5 minutos
-    cacheTime: 10 * 60 * 1000, // 10 minutos
+    staleTime: 0, // Siempre considerar datos como obsoletos para desarrollo
+    cacheTime: 0, // No mantener cache para desarrollo
     retry: 2,
     retryDelay: 1000,
     // Configuración para mostrar datos cached mientras se actualiza
     refetchOnMount: true,
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus: true, // Refetch cuando la ventana gana foco
   })
 }
 
