@@ -15,7 +15,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { api } from '@/lib/axios'
 import { formatDistanceToNow } from 'date-fns'
-import { es } from 'date-fns/locale/es'
+import { es } from 'date-fns/locale'
 
 interface Permission {
   id: number

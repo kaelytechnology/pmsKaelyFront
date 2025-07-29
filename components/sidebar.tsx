@@ -130,25 +130,17 @@ export function Sidebar({ tenant }: SidebarProps) {
       return getDefaultMenu()
     }
     
+    // Limpiar cache para forzar recarga del menú actualizado
     try {
-      // Intentar cargar desde storage
-      let cachedMenu = sessionStorage.getItem('session-menu')
-      if (!cachedMenu) {
-        cachedMenu = localStorage.getItem('cached-menu')
-      }
-      
-      if (cachedMenu) {
-        const menuData = JSON.parse(cachedMenu)
-        const menu = menuData.menu || menuData
-        console.log('🚀 Menu cargado desde storage:', menu.length)
-        return menu
-      }
+      localStorage.removeItem('cached-menu')
+      sessionStorage.removeItem('session-menu')
+      console.log('🧹 Cache del menú limpiado')
     } catch (error) {
-      console.warn('Error cargando menú desde storage:', error)
+      console.warn('Error limpiando cache del menú:', error)
     }
     
-    // Fallback al menú por defecto
-    console.log('🔄 Usando menú por defecto')
+    // Usar siempre el menú por defecto actualizado
+    console.log('🔄 Usando menú por defecto actualizado')
     return getDefaultMenu()
   })
   
